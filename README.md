@@ -216,3 +216,10 @@ fastpt.hipify.folder /workspace/app -o /workspace/app_dtk \
 - `fastpt.hipify.cmake` 可处理常见 CMake 语法、`.cu/.hip` 文件名、CUDA 链接 target 和部分依赖包；复杂 CMake 宏、CUTLASS、动态变量与 `make` 规则仍需按实际编译错误适配。
 - 如果工程中包含第三方依赖库，第三方库可能不会被自动处理，此时需要单独适配。
 - 如果不希望引入 `ATen/dtk_macros.h` 头文件，可通过以下方式屏蔽：`export FASTPT_DTK_MACROS=1`。
+
+## License
+
+FastPT is distributed under the BSD 3-Clause License. See [LICENSE.txt](LICENSE.txt).
+
+Third-party components and their license notices are listed in
+[THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES).

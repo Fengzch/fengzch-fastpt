@@ -304,6 +304,13 @@ if __name__ == "__main__":
         package_dir=setup_kwargs['package_dir'],
         package_data=setup_kwargs['package_data'],
 
+        license='BSD-3-Clause',
+        license_files=['LICENSE.txt', 'THIRD_PARTY_NOTICES'],
+        classifiers=[
+            'License :: OSI Approved :: BSD License',
+            'License :: OSI Approved :: BSD License (BSD-3-Clause)',
+        ],
+
         ext_modules=[],
         include_package_data=True,
         cmdclass=setup_kwargs['cmdclass'],
