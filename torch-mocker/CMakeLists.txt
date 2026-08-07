@@ -1,0 +1,142 @@
+# Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+# SPDX-License-Identifier: BSD-3-Clause
+
+cmake_minimum_required(VERSION 3.10)
+project(Torch-Mocker-Test LANGUAGES CXX CUDA)
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+find_package(CUDA REQUIRED)
+
+# fmt is a transitive dependency of torch_cuda.  Configure the vendored
+# project before this legacy build sets nvcc as the host C++ compiler.
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/third_party/fmt EXCLUDE_FROM_ALL)
+set_target_properties(fmt PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+set(CMAKE_CXX_COMPILER nvcc)
+
+execute_process(
+    COMMAND python3 tools/generate_torch_version.py
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    RESULT_VARIABLE result
+    OUTPUT_VARIABLE output
+    ERROR_VARIABLE error
+)
+
+if(NOT result EQUAL 0)
+    message(FATAL_ERROR "Python script failed: ${error}")
+else()
+    message(STATUS "Python output: ${output}")
+endif()
+
+option(USE_TEST "Use single test" OFF)
+option(USE_NCCL "Enable NCCL support" ON)
+option(USE_C10D_NCCL "Enable C10D_NCCL support" ON)
+if(USE_NCCL)
+    add_definitions(-DUSE_NCCL)
+endif()
+
+if(USE_C10D_NCCL)
+    add_definitions(-DUSE_C10D_NCCL)
+endif()
+
+set(Torch_CUDA_SRCS)
+set(C10_CUDA_SRCS)
+set(Torch_MOCKER_SRCS)
+set(Torch_MOCKER_VLOG)
+set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -w")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -w")
+
+include(GNUInstallDirs)
+
+find_package(Python3 COMPONENTS Development REQUIRED)
+include_directories(${Python3_INCLUDE_DIRS})
+link_directories(${Python3_LIBRARY_DIRS})
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+file(GLOB_RECURSE Torch_CUDA_SRCS "aten/src/ATen/*.cpp")
+list(FILTER Torch_CUDA_SRCS EXCLUDE REGEX "aten/src/ATen/cuda/nvrtc_stub/*ATenNVRTC.cpp")
+file(GLOB NVRTC_SRCS "aten/src/ATen/cuda/nvrtc_stub/ATenNVRTC.cpp")
+file(GLOB_RECURSE Torch_CUDA_SRCS2 "torch/csrc/*.cpp" "torch/csrc/*.cu")
+list(APPEND Torch_CUDA_SRCS ${Torch_CUDA_SRCS} ${Torch_CUDA_SRCS2})
+file(GLOB C10_CUDA_SRCS1 "c10/cuda/*.cpp")
+file(GLOB C10_CUDA_SRCS2 "c10/cuda/impl/*.cpp")
+file(GLOB C10_CUDA_SRCS3 "c10/util/*.cpp")
+list(APPEND C10_CUDA_SRCS ${C10_CUDA_SRCS1} ${C10_CUDA_SRCS2} ${C10_CUDA_SRCS3})
+file(GLOB Torch_MOCKER_SRCS "torch_mocker/*.cpp")
+file(GLOB Torch_MOCKER_VLOG "torch_mocker/utils/*.cpp")
+
+# build libcaffe2_nvrtc.so
+#add_library(caffe2_nvrtc SHARED ${NVRTC_SRCS})
+#target_link_libraries(caffe2_nvrtc PRIVATE hiprtc)
+#target_include_directories(caffe2_nvrtc PRIVATE $ENV{HIP_TORCH_PATH})
+#target_compile_definitions(caffe2_nvrtc PRIVATE "-D__HIP_PLATFORM_AMD__")
+
+add_library(torch_mocker  SHARED ${Torch_MOCKER_SRCS})
+add_library(torch_cuda SHARED ${Torch_CUDA_SRCS})
+target_include_directories(torch_cuda PRIVATE $ENV{HIP_TORCH_PATH})
+add_library(c10_cuda  SHARED ${C10_CUDA_SRCS} ${Torch_MOCKER_VLOG})
+
+add_dependencies(torch_cuda torch_mocker c10_cuda)
+#优先查找torchmocker下的头文件
+include_directories(BEFORE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+include_directories(BEFORE ${CMAKE_CURRENT_SOURCE_DIR}/include/aten/src)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/aten/src)
+include_directories(SYSTEM $ENV{TORCH_PATH}/include)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/torch_mocker)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/third_party/cudnn-frontend/include)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/third_party/cudnn-frontend/include/cudnn_frontend/thirdparty)
+include_directories(SYSTEM $ENV{TORCH_PATH}/include/torch/csrc/api/include)
+
+add_definitions(-DTORCH_USE_CUDA_DSA)
+add_definitions(-DPYTORCH_C10_DRIVER_API_SUPPORTED)
+#add_definitions("-D__CUDA_HIP_PLATFORM_AMD__")
+#add_definitions("-D__HIP_PLATFORM_AMD__")
+#add_definitions("-DC10_USING_CUSTOM_GENERATED_MACROS")
+target_compile_definitions(torch_mocker PRIVATE "-D__CUDA_HIP_PLATFORM_AMD__")
+target_compile_definitions(torch_mocker PRIVATE "-D__HIP_PLATFORM_AMD__")
+target_link_libraries(torch_mocker PUBLIC $ENV{TORCH_PATH}/lib/libtorch_hip.so)
+target_compile_definitions(torch_cuda PUBLIC "-DC10_USING_CUSTOM_GENERATED_MACROS")
+#target_include_directories(torch_cuda PRIVATE $ENV{TORCH_PATH}/include)
+target_include_directories(c10_cuda PRIVATE $ENV{HIP_TORCH_PATH})
+target_compile_definitions(c10_cuda PRIVATE "-D__CUDA_HIP_PLATFORM_AMD__")
+target_compile_definitions(c10_cuda PRIVATE "-D__HIP_PLATFORM_AMD__")
+target_compile_definitions(c10_cuda PUBLIC "-DC10_USING_CUSTOM_GENERATED_MACROS")
+
+target_link_libraries(torch_cuda PUBLIC torch_mocker)
+message("$ENV{TORCH_PATH}/lib/libc10_hip.so")
+target_link_libraries(c10_cuda PUBLIC $ENV{TORCH_PATH}/lib/libc10_hip.so cublasLt torch_mocker)
+
+target_include_directories(torch_cuda PRIVATE $ENV{HIP_TORCH_PATH})
+target_compile_definitions(torch_cuda PRIVATE "-D__HIP_PLATFORM_AMD__")
+target_compile_definitions(torch_cuda PUBLIC "-DC10_USING_CUSTOM_GENERATED_MACROS")
+if(USE_GLOG)
+    target_compile_definitions(torch_cuda PUBLIC "-DC10_USE_GLOG")
+    set(TORCH_LIBS_DIR $ENV{TORCH_PATH}/../torch.libs)
+    if(EXISTS ${TORCH_LIBS_DIR})
+        file(GLOB GLOG_LIB "${TORCH_LIBS_DIR}/libglog-*.so*")
+        if(NOT GLOG_LIB)
+            message(FATAL_ERROR "libglog not found in ${TORCH_LIBS_DIR}")
+        else()
+            list(GET GLOG_LIB 0 GLOG_LIB_PATH)
+            target_link_libraries(torch_cuda PUBLIC ${GLOG_LIB_PATH})
+        endif()
+    else()
+        target_link_libraries(torch_cuda PUBLIC glog)
+    endif()
+endif()
+target_link_libraries(torch_cuda PUBLIC torch_mocker)
+target_link_libraries(torch_cuda PUBLIC $ENV{TORCH_PATH}/lib/libtorch_hip.so)
+target_link_libraries(torch_cuda PUBLIC $ENV{TORCH_PATH}/lib/libtorch_python.so)
+target_link_directories(torch_cuda PUBLIC ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR})
+target_link_libraries(torch_cuda PUBLIC cuda nvrtc cudnn_cnn_infer cublas cublasLt cufft cusparse cudnn cudnn_cnn_infer cudnn_adv_infer nvToolsExt fmt)
+#target_link_libraries(torch_cuda PUBLIC cuda nvrtc cudnn_cnn_infer cublas cublasLt cufft cusparse cudnn cudnn_cnn_infer cudnn_adv_infer)
+target_link_libraries(torch_cuda PUBLIC c10_cuda)
+target_link_libraries(torch_cuda PUBLIC ${Python3_LIBRARIES})
+message("$ENV{TORCH_PATH}/lib/libtorch_cuda.so")
+
+set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -std=c++20")
+include(CTest)
+if(USE_TEST AND BUILD_TESTING)
+    add_subdirectory(tests)
+endif()
+
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/test_py)

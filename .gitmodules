@@ -1,0 +1,5 @@
+[submodule "torch-mocker/third_party/fmt"]
+    path = torch-mocker/third_party/fmt
+    url = https://github.com/fmtlib/fmt.git
+	branch = 407c905e
+

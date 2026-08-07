@@ -1,0 +1,377 @@
+#!/bin/bash
+# Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+# SPDX-License-Identifier: BSD-3-Clause
+
+torch_version='2.12'
+require_dtk_version='2604'
+
+remove_dtk_cuda_paths() {
+    local var_name="$1"
+    local current_value="${!var_name}"
+
+    if [ -z "$current_value" ]; then
+        return
+    fi
+
+    IFS=':' read -r -a paths <<< "$current_value"
+    local new_paths=()
+
+    for path in "${paths[@]}"; do
+        if [[ "$path" =~ /dtk[^/]*/cuda/ ]]; then
+            continue
+        fi
+        new_paths+=("$path")
+    done
+
+    local new_value
+    if [ ${#new_paths[@]} -eq 0 ]; then
+        new_value=""
+    else
+        new_value=$(IFS=':'; echo "${new_paths[*]}")
+    fi
+
+    if [ -n "$new_value" ]; then
+        export "$var_name=$new_value"
+    else
+        unset "$var_name"
+    fi
+}
+
+
+
+
+# Display help information
+show_help() {
+    echo "Usage: $0 [options]"
+    echo
+    echo "Options:"
+    echo "  -c, --compile   Control compilation component, set USE_FASTPT_CUDA and load CUDA environment"
+    echo "  -e, --execute   Control usage component, initialize fastpt.cuda and reload .bashrc"
+    echo "  -t, --test      Control transcoding compilation component and initialize compilation environment"
+    echo "  -h, --help      Display this help information"
+    echo
+    echo "Note: -t cannot be set with -c or -e simultaneously."
+    return 0
+}
+
+check_dtk() {
+    if [ -z "$ROCM_PATH" ]; then
+        #echo "WARNING: ROCM_PATH environment variable is not set, check and use dtk path"
+        if [ -d "/opt/dtk" ]; then
+            echo "dtk path is /opt/dtk"
+            version_file="/opt/dtk/.info/rocm_version"
+            current_dtk_version=$(cat "$version_file" | tr -d '.')
+            echo "current_dtk_version: $current_dtk_version"
+            if [[ "$current_dtk_version" == "$require_dtk_version" ]]; then
+            #    return 0  # Return true
+                echo "Success: The current dtk version is consistent with the required dtk version."
+            else
+            #    return 1  # Return false
+                echo "WARNING: The current dtk version $current_dtk_version, is inconsistent with the require dtk version $require_dtk_version"
+            fi
+        else
+            echo "Error: ROCM_PATH environment variable is not set, and dtk path is not valid"
+            return 1 # Return false
+        fi
+    else
+        version_file="$ROCM_PATH/.info/rocm_version"
+        current_dtk_version=$(cat "$version_file" | tr -d '.')
+        echo "current_dtk_version: $current_dtk_version"
+        if [[ "$current_dtk_version" == "$require_dtk_version" ]]; then
+            #    return 0  # Return true
+            echo "WARNING: The current dtk version is consistent with the required dtk version."
+        else
+            #    return 1  # Return false
+            echo "WARNING: The current dtk version $current_dtk_version, is inconsistent with the require dtk version $require_dtk_version"
+        fi
+    fi
+}
+
+compile=false
+execute=false
+test_env=false
+error_occurred=false
+TORCH_PATH=$(python3 -c "import torch; print(torch.__path__[0])")
+
+report_error() {
+    echo "ERROR: $1"
+    error_occurred=true
+}
+
+if [[ $# -eq 0 ]]; then
+    report_error "Parameter must be specified"
+    show_help
+    return 1
+else
+    while [[ $# -gt 0 ]]; do
+        case "${1,,}" in  # Convert parameter to lowercase
+            -c|--compile|-C|--COMPILE)
+                compile=true
+                shift
+                ;;
+            -e|--execute|-E|--EXECUTE)
+                execute=true
+                shift
+                ;;
+            -t|--test|-T|--TEST)
+                test_env=true
+                shift
+                ;;
+            -h|--help|-H|--HELP)
+                show_help
+                shift
+                break
+                ;;
+            *)
+                report_error "Unknown parameter '$1'"
+                echo "Use 'source /usr/local/bin/fastpt -h' to view help information"
+                return 1
+                ;;
+        esac
+    done
+fi
+
+# Check if both -t and -c parameters are set
+if [[ "$compile" = true && "$test_env" = true ]]; then
+    report_error "-t and -c parameters cannot be set simultaneously"
+    show_help
+    return 1
+fi
+
+# Check if both -e and -t parameters are set
+if [[ "$execute" = true && "$test_env" = true ]]; then
+    report_error "-e and -t parameters cannot be set simultaneously"
+    show_help
+    return 1
+fi
+
+check_torch_version() {
+    
+    # Third-party runtime diagnostics can share stdout with Python's version output.
+    current_torch_version=$(python -c "import torch; print('__FASTPT_TORCH_VERSION__=' + torch.__version__)" 2>&1 \
+        | sed -n 's/^__FASTPT_TORCH_VERSION__=//p' | tail -n 1 | cut -d '.' -f 1,2)
+    #current_torch_hcu_version=$(python -c "import torch; print(torch.__hcu_version__)")
+
+    # Perform matching comparison
+    if [[ "$current_torch_version" == "$torch_version" ]]; then
+        return 0  # Return true
+    else
+        return 1  # Return false
+    fi
+}
+
+can_write_torch_targets() {
+    python3 - "$@" <<'PY'
+import os
+import sys
+
+try:
+    import torch
+except ImportError:
+    sys.exit(1)
+
+torch_dir = os.path.dirname(torch.__file__)
+
+for relative_path in sys.argv[1:]:
+    target_path = os.path.join(torch_dir, relative_path)
+    check_path = target_path if os.path.exists(target_path) else os.path.dirname(target_path)
+    if not check_path or not os.path.exists(check_path) or not os.access(check_path, os.W_OK):
+        sys.exit(1)
+
+sys.exit(0)
+PY
+}
+
+can_run_fastpt_cuda_init() {
+    can_write_torch_targets \
+        "version.py" \
+        "cuda/__init__.py" \
+        "utils/cpp_extension.py" \
+        "share/cmake/Caffe2/Caffe2Targets.cmake" \
+        "share/cmake/Caffe2/Caffe2Targets-release.cmake" \
+        "lib/libc10_cuda.so" \
+        "lib/libtorch_cuda.so" \
+        "lib/libtorch_mocker.so"
+}
+
+can_run_fastpt_cuda_exe() {
+    can_write_torch_targets \
+        "lib/libc10_cuda.so" \
+        "lib/libtorch_cuda.so" \
+        "lib/libtorch_mocker.so"
+}
+
+check_fastpt_torch_initialized() {
+    python3 - <<'PY'
+import os
+import sys
+
+try:
+    import torch
+except ImportError:
+    print("ERROR: torch is not importable in the current Python environment.", file=sys.stderr)
+    sys.exit(1)
+
+torch_dir = os.path.dirname(torch.__file__)
+required = [
+    "version.py",
+    "cuda/__init__.py",
+    "utils/cpp_extension.py",
+    "share/cmake/Caffe2/Caffe2Targets.cmake",
+    "share/cmake/Caffe2/Caffe2Targets-release.cmake",
+    "lib/libc10_cuda.so",
+    "lib/libtorch_cuda.so",
+    "lib/libtorch_mocker.so",
+]
+
+missing = [path for path in required if not os.path.exists(os.path.join(torch_dir, path))]
+
+try:
+    from torch import version as torch_version
+    hcu_version = getattr(torch_version, "__hcu_version__", "")
+except Exception:
+    hcu_version = ""
+
+if missing or not hcu_version:
+    print("ERROR: fastpt no-write-permission path requires pre-initialized torch files.", file=sys.stderr)
+    if missing:
+        print("Missing: " + ", ".join(missing), file=sys.stderr)
+    if not hcu_version:
+        print("torch/version.py does not expose __hcu_version__.", file=sys.stderr)
+    print("Please initialize fastpt once in an environment with write permission: source /usr/local/bin/fastpt -C", file=sys.stderr)
+    sys.exit(1)
+PY
+}
+
+if [[ "$compile" = true ]]; then
+    if check_dtk; then
+        # Check PyTorch version
+        if check_torch_version; then
+            # Torch version matches, execute subsequent code
+            if [[ -n "$USE_FASTPT" && "$USE_FASTPT" -eq 1 ]]; then
+                echo "WARNING: Check USE_FASTPT environment variable is set, currently using USE_FASTPT_CUDA for compilation"
+            fi
+          
+            cuda_env_path="$ROCM_PATH/cuda/env.sh"
+
+            if [[ ! -f "$cuda_env_path" ]]; then
+                report_error "Cannot find cuda env file $cuda_env_path"
+            else
+                if ! can_run_fastpt_cuda_init; then
+                    if ! check_fastpt_torch_initialized; then
+                        return 1
+                    fi
+                fi
+                source "$cuda_env_path"
+                if can_run_fastpt_cuda_init; then
+                    echo "fastpt path: write permission available, running system file replacement."
+                    fastpt.cuda.init
+                else
+                    echo "fastpt path: write permission unavailable, torch files are ready; skipping system file replacement."
+                fi
+                export USE_FASTPT_CUDA=1
+                export LD_LIBRARY_PATH=$TORCH_PATH/lib:$LD_LIBRARY_PATH
+                export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$TORCH_PATH/../torch.libs:
+                if [ -n "$CONDA_PREFIX" ]; then
+                    export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$CONDA_PREFIX/lib
+                fi
+                echo "USE_FASTPT_CUDA is set, and CUDA environment is loaded"
+            fi
+        else
+            # Torch version does not match, output error message
+            report_error "Torch version is not supported, current torch version is $current_torch_version.x, required torch version is $torch_version.x"
+        fi
+    else
+        report_error "ROCM_PATH is not set and the /opt/dtk path  does not exist"
+    fi
+fi
+
+if [[ "$execute" = true ]]; then
+    unset USE_FASTPT_CUDA
+    # Detect whether an external CUDA environment is already present (may conflict)
+    cuda_detected=false
+    nvcc_whereis="$(whereis -b nvcc 2>/dev/null | cut -d':' -f2- | xargs)"
+    if [[ -n "${CUDA_PATH:-}" || -n "$nvcc_whereis" ]]; then
+        cuda_detected=true
+        echo "Detected CUDA_PATH='$CUDA_PATH'. Trying to unset CUDA environment ..."
+        unset CUDA_BIN_PATH CUDA_HOME CUDA_PATH CUDAARCHS
+        remove_dtk_cuda_paths PATH
+        remove_dtk_cuda_paths LIBRARY_PATH
+        remove_dtk_cuda_paths C_INCLUDE_PATH
+        remove_dtk_cuda_paths CPLUS_INCLUDE_PATH
+        # Re-check nvcc and PATH after cleanup to determine if CUDA still remains
+        nvcc_whereis_after="$(whereis -b nvcc 2>/dev/null | cut -d':' -f2- | xargs)"
+        cuda_paths_in_path="$(echo "$PATH" | tr ':' '\n' | grep -iE '/cuda(/|$)' 2>/dev/null || true)"
+        if [[ -z "$CUDA_PATH" && -z "$nvcc_whereis_after" && -z "$cuda_paths_in_path" ]]; then
+            echo "CUDA environment variables and paths have been unset successfully."
+        else
+            echo "Failed to fully unset CUDA environment, please reset your environment manually by \"source /opt/dtk/cuda/unset_cuda_env.sh\" ."
+        fi
+    fi
+    
+    
+    if check_dtk; then
+        # Check PyTorch version
+        if check_torch_version; then
+            # Torch version matches, execute subsequent code
+            if can_run_fastpt_cuda_exe; then
+                echo "fastpt path: write permission available, running runtime file check/replacement."
+                fastpt.cuda.exe
+            else
+                if check_fastpt_torch_initialized; then
+                    echo "fastpt path: torch files are ready, permission unavailable, using existing torch files directly."
+                else
+                    echo "Error: torch files are not ready, permission unavailable!"
+                    return 1
+                fi
+            fi
+            echo "current_dtk_version: $current_dtk_version"
+            export LD_LIBRARY_PATH=$TORCH_PATH/lib:$LD_LIBRARY_PATH
+            if [[ "$current_dtk_version" == "2504" ]]; then
+                cuda_lib_path="$ROCM_PATH/cuda/lib64"
+            elif [[ "$current_dtk_version" == "25041" ]]; then
+                cuda_lib_path="$ROCM_PATH/cuda/cuda-11/lib64"
+            else
+                cuda_lib_path="$ROCM_PATH/cuda/cuda-12/lib64"
+            fi
+
+            if [[ ! -d "$cuda_lib_path" ]]; then
+                report_error "Cannot find CUDA compatibility library path $cuda_lib_path"
+                return 1
+            fi
+
+            export LD_LIBRARY_PATH=$cuda_lib_path:$LD_LIBRARY_PATH
+            echo "CUDA compatibility library path: $cuda_lib_path"
+
+            echo "fastpt.cuda has been initialized"
+        else
+            # Torch version does not match, output error message
+            report_error "Torch version is not supported, current torch version is $current_torch_version.x, required torch version is $torch_version.x"
+        fi
+    else
+        report_error "ROCM_PATH is not set and the /opt/dtk path  does not exist"
+    fi
+fi
+
+# Handle test parameter
+if [[ "$test_env" = true ]]; then
+    if check_dtk; then
+        # Check PyTorch version
+        if check_torch_version; then
+            # Torch version matches, continue checking other conditions
+            if [[ (-n "$USE_FASTPT_CUDA" && "$USE_FASTPT_CUDA" -eq 1) || -n "$CUDA_PATH" ]]; then
+                report_error "GPUFusion environment is detected, currently using transcoding compilation. GPUFusion should not be set. Please try opening a new terminal."
+            else
+                # All conditions are met, execute subsequent code
+                export USE_FASTPT=1
+                export USE_FASTPT_CPPEXTENSION=1
+                echo "Transcoding environment settings have been initialized"
+            fi
+        else
+            # Torch version does not match, output error message
+            report_error "Torch version is not supported, current torch version is $current_torch_version.x, required torch version is $torch_version.x"
+        fi
+    else
+        report_error "ROCM_PATH is not set and the /opt/dtk path  does not exist"
+    fi
+fi
