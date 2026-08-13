@@ -20,6 +20,9 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
+// Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+// SPDX-License-Identifier: BSD-3-Clause
+
 #pragma once
 #include <exception>
 #include <optional>
@@ -40,7 +43,7 @@
 #endif
 
 using json = nlohmann::json;
-using nv_bfloat16=__nv_bfloat16;
+using nv_bfloat16 = __nv_bfloat16;
 
 template <>
 struct nlohmann::adl_serializer<float> {

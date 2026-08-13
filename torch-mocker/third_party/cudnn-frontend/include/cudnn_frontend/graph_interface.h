@@ -1,5 +1,8 @@
 #pragma once
 
+// Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+// SPDX-License-Identifier: BSD-3-Clause
+
 #include <unordered_map>
 
 #include "../cudnn_frontend_version.h"
@@ -27,7 +30,7 @@
 #include "plans.h"
 #include "graph_helpers.h"
 
-using nv_bfloat16=__nv_bfloat16;
+using nv_bfloat16 = __nv_bfloat16;
 
 namespace cudnn_frontend::graph {
 

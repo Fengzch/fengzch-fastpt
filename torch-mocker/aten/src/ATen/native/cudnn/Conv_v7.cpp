@@ -1,3 +1,7 @@
+// Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+// SPDX-License-Identifier: BSD-3-Clause
+// Modified by Hygon Information Technology Co., Ltd., 2026.
+
 #define TORCH_ASSERT_ONLY_METHOD_OPERATORS
 #include <ATen/cuda/CUDAConfig.h> // for the definition of AT_CUDNN_ENABLED
 

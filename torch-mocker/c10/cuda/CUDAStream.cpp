@@ -1,3 +1,7 @@
+// Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+// SPDX-License-Identifier: BSD-3-Clause
+// Modified by Hygon Information Technology Co., Ltd., 2026.
+
 #include "hip/hip_runtime.h"
 #include <c10/core/impl/GPUTrace.h>
 #include <c10/cuda/CUDAFunctions.h>

@@ -1,3 +1,7 @@
+// Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+// SPDX-License-Identifier: BSD-3-Clause
+// Modified by Hygon Information Technology Co., Ltd., 2026.
+
 #include <torch/csrc/autograd/functions/comm.h>
 
 #include <ATen/core/functional.h>

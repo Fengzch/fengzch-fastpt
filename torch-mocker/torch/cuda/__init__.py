@@ -1,3 +1,7 @@
+# Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+# SPDX-License-Identifier: BSD-3-Clause
+# Modified by Hygon Information Technology Co., Ltd., 2026.
+
 # mypy: allow-untyped-defs
 r"""
 This package adds support for CUDA tensor types.
@@ -57,12 +61,16 @@ _HAS_PYNVML = False
 _HAS_AMDSMI = False
 _PYNVML_ERR = None
 _AMDSMI_ERR = None
+_HAS_HCUSMI = False
+_HCUSMI_ERR = None
 try:
     from torch import version as _version
 
     try:
         if not _version.hip:
             import pynvml  # type: ignore[import]
+
+            _HAS_PYNVML = True
         else:
             import ctypes
             from pathlib import Path
@@ -112,11 +120,51 @@ try:
                 with _amdsmi_cdll_hook():
                     import amdsmi  # type: ignore[import]
                 _HAS_AMDSMI = True
+                _HAS_PYNVML = True
             except ModuleNotFoundError as err:
                 _AMDSMI_ERR = err
-                raise
 
-        _HAS_PYNVML = True
+            # hcusmi: new interface, preferred if available
+            class _hcusmi_cdll_hook:
+                def __init__(self) -> None:
+                    self.original_CDLL = ctypes.CDLL  # type: ignore[misc,assignment]
+                    paths = ["libhcu_smi.so"]
+                    if rocm_home := os.getenv("ROCM_HOME", os.getenv("ROCM_PATH")):
+                        paths = [os.path.join(rocm_home, "lib/libhcu_smi.so")] + paths
+                    self.paths: list[str] = paths
+
+                def hooked_CDLL(
+                    self, name: str | Path | None, *args: Any, **kwargs: Any
+                ) -> ctypes.CDLL:
+                    if name and Path(name).name == "libhcu_smi.so":
+                        for path in self.paths:
+                            try:
+                                return self.original_CDLL(path, *args, **kwargs)
+                            except OSError:
+                                pass
+                    return self.original_CDLL(name, *args, **kwargs)  # type: ignore[arg-type]
+
+                def __enter__(self) -> None:
+                    ctypes.CDLL = self.hooked_CDLL  # type: ignore[misc,assignment]
+
+                def __exit__(self, type: Any, value: Any, traceback: Any) -> None:
+                    ctypes.CDLL = self.original_CDLL  # type: ignore[misc]
+
+            try:
+                with _hcusmi_cdll_hook():
+                    import hcusmi  # type: ignore[import]
+                if hcusmi.__file__ is not None:
+                    hcusmi_library = Path(hcusmi.__file__).with_name(
+                        "libhcu_smi.so"
+                    )
+                    if hcusmi_library.is_file():
+                        os.environ.setdefault(
+                            "TORCH_HCUSMI_LIB_PATH", str(hcusmi_library)
+                        )
+                _HAS_HCUSMI = True
+                _HAS_PYNVML = True
+            except (ModuleNotFoundError, OSError) as err:
+                _HCUSMI_ERR = err
     except ModuleNotFoundError:
         pass
     finally:
@@ -903,10 +951,25 @@ def _raw_device_count_amdsmi() -> int:
         amdsmi.amdsmi_init()
     except amdsmi.AmdSmiException as e:
         warnings.warn(
-            f"Can't initialize amdsmi - Error code: {e.err_code}", stacklevel=2
+            f"Can't initialize fallback SMI backend - Error code: {e.err_code}",
+            stacklevel=2,
         )
         return -1
     socket_handles = amdsmi.amdsmi_get_processor_handles()
+    return len(socket_handles)
+
+
+def _raw_device_count_hcusmi() -> int:
+    if not _HAS_HCUSMI:
+        return -1
+    try:
+        hcusmi.hcusmi_init()
+    except hcusmi.HcuSmiException as e:
+        warnings.warn(
+            f"Can't initialize hcusmi - Error code: {e.err_code}", stacklevel=2
+        )
+        return -1
+    socket_handles = hcusmi.hcusmi_get_processor_handles()
     return len(socket_handles)
 
 
@@ -936,27 +999,61 @@ def _raw_device_uuid_amdsmi() -> list[str] | None:
     try:
         amdsmi.amdsmi_init()
     except amdsmi.AmdSmiException:
-        warnings.warn("Can't initialize amdsmi", stacklevel=2)
+        warnings.warn("Can't initialize fallback SMI backend", stacklevel=2)
         return None
     try:
         socket_handles = amdsmi.amdsmi_get_processor_handles()
         dev_count = len(socket_handles)
     except amdsmi.AmdSmiException:
-        warnings.warn("Can't get amdsmi device count", stacklevel=2)
+        warnings.warn("Can't get fallback SMI device count", stacklevel=2)
         return None
     uuids: list[str] = []
     for idx in range(dev_count):
         try:
             handler = amdsmi.amdsmi_get_processor_handles()[idx]
         except amdsmi.AmdSmiException:
-            warnings.warn("Cannot get amdsmi processor handle", stacklevel=2)
+            warnings.warn("Cannot get fallback SMI processor handle", stacklevel=2)
             return None
         try:
             uuid = amdsmi.amdsmi_get_gpu_asic_info(handler)["asic_serial"][
                 2:
             ]  # Removes 0x prefix from serial
         except amdsmi.AmdSmiException:
-            warnings.warn("Cannot get device UUID from amdsmi", stacklevel=2)
+            warnings.warn("Cannot get device UUID from fallback SMI backend", stacklevel=2)
+            return None
+        uuids.append(
+            str(uuid).lower()
+        )  # Lower-case to match expected HIP_VISIBLE_DEVICES uuid input
+    return uuids
+
+
+def _raw_device_uuid_hcusmi() -> list[str] | None:
+    if not _HAS_HCUSMI:
+        return None
+    try:
+        hcusmi.hcusmi_init()
+    except hcusmi.HcuSmiException:
+        warnings.warn("Can't initialize hcusmi", stacklevel=2)
+        return None
+    try:
+        socket_handles = hcusmi.hcusmi_get_processor_handles()
+        dev_count = len(socket_handles)
+    except hcusmi.HcuSmiException:
+        warnings.warn("Can't get hcusmi device count", stacklevel=2)
+        return None
+    uuids: list[str] = []
+    for idx in range(dev_count):
+        try:
+            handler = hcusmi.hcusmi_get_processor_handles()[idx]
+        except hcusmi.HcuSmiException:
+            warnings.warn("Cannot get hcu device handler", stacklevel=2)
+            return None
+        try:
+            uuid = hcusmi.hcusmi_get_gpu_asic_info(handler)["asic_serial"][
+                2:
+            ]  # Removes 0x prefix from serial
+        except hcusmi.HcuSmiException:
+            warnings.warn("Cannot get uuid for hcu device", stacklevel=2)
             return None
         uuids.append(
             str(uuid).lower()
@@ -1056,6 +1153,31 @@ def _device_count_amdsmi() -> int:
     return len(visible_devices)
 
 
+def _device_count_hcusmi() -> int:
+    visible_devices = _parse_visible_devices()
+    if not visible_devices:
+        return 0
+    try:
+        if type(visible_devices[0]) is str:
+            uuids = _raw_device_uuid_hcusmi()
+            if uuids is None:
+                return -1
+            visible_device_str = cast(list[str], visible_devices)
+            visible_devices = _transform_uuid_to_ordinals(visible_device_str, uuids)
+        else:
+            raw_cnt = _raw_device_count_hcusmi()
+            if raw_cnt <= 0:
+                return raw_cnt
+            for idx, val in enumerate(visible_devices):
+                if cast(int, val) >= raw_cnt:
+                    return idx
+    except OSError:
+        return -1
+    except AttributeError:
+        return -1
+    return len(visible_devices)
+
+
 def _device_count_nvml() -> int:
     r"""Return number of devices as reported by NVML taking CUDA_VISIBLE_DEVICES into account.
 
@@ -1131,7 +1253,14 @@ def device_count() -> int:
     else:
         # bypass _device_count_nvml() if rocm (not supported)
         if torch.version.hip:
-            nvml_count = _device_count_amdsmi()
+            nvml_count = -1
+            if _HAS_HCUSMI:
+                try:
+                    nvml_count = _device_count_hcusmi()
+                except Exception:
+                    pass
+            if nvml_count < 0:
+                nvml_count = _device_count_amdsmi()
         else:
             nvml_count = _device_count_nvml()
         r = torch._C._cuda_getDeviceCount() if nvml_count < 0 else nvml_count
@@ -1325,16 +1454,34 @@ def _get_pynvml_handler(device: Device = None):
 def _get_amdsmi_handler(device: Device = None):
     if not _HAS_AMDSMI:
         raise ModuleNotFoundError(
-            "amdsmi does not seem to be installed or it can't be imported."
+            "The fallback SMI backend does not seem to be installed "
+            "or it can't be imported."
         ) from _AMDSMI_ERR
     try:
         amdsmi.amdsmi_init()
     except amdsmi.AmdSmiException as e:
         raise RuntimeError(
-            "amdsmi driver can't be loaded, requires >=ROCm6.0 installation"
+            "The fallback SMI backend can't be loaded, "
+            "requires >=ROCm6.0 installation"
         ) from e
     device = _get_amdsmi_device_index(device)
     handle = amdsmi.amdsmi_get_processor_handles()[device]
+    return handle
+
+
+def _get_hcusmi_handler(device: Device = None):
+    if not _HAS_HCUSMI:
+        raise ModuleNotFoundError(
+            "hcusmi does not seem to be installed or it can't be imported."
+        ) from _HCUSMI_ERR
+    try:
+        hcusmi.hcusmi_init()
+    except hcusmi.HcuSmiException as e:
+        raise RuntimeError(
+            "hcusmi driver can't be loaded, requires >=ROCm5.6 installation"
+        ) from e
+    device = _get_hcusmi_device_index(device)
+    handle = hcusmi.hcusmi_get_processor_handles()[device]
     return handle
 
 
@@ -1358,18 +1505,18 @@ def _get_amdsmi_device_index_from_hip_index(device: int) -> int:
         _cached_hip_to_amdsmi = dict(gen())
         if not _cached_hip_to_amdsmi and len(amdsmi_handles) > 1:
             warnings.warn(
-                "Cannot translate HIP ID to amdsmi device index due to"
+                "Cannot translate HIP ID to fallback SMI ID due to"
                 " lack of translation information prior to ROCm 6.4."
-                " Functions that rely on amdsmi"
+                " Functions that rely on the fallback SMI backend"
                 " (e.g. temperature()) may operate on wrong devices."
             )
     if device not in _cached_hip_to_amdsmi:
         warnings.warn(
-            f"Cannot translate HIP ID {device} to amdsmi device index due to"
-            " undetected HIP ID from amdsmi."
-            " amdsmi_get_gpu_enumeration_info() only report these HIP IDs"
+            f"Cannot translate HIP ID {device} to fallback SMI ID due to"
+            " an undetected HIP ID from the fallback SMI backend."
+            " The fallback SMI backend only reports these HIP IDs"
             f" {list(_cached_hip_to_amdsmi.keys())}."
-            " Functions that rely on amdsmi"
+            " Functions that rely on the fallback SMI backend"
             " (e.g. temperature()) may operate on wrong devices."
         )
     return _cached_hip_to_amdsmi.get(device, device)
@@ -1399,10 +1546,36 @@ def _get_amdsmi_device_index(device: Device) -> int:
         return _get_amdsmi_device_index_from_hip_index(idx_map[idx])
 
 
+def _get_hcusmi_device_index(device: Device) -> int:
+    r"""Return the hcusmi index of the device, taking visible_devices into account."""
+    idx = _get_device_index(device, optional=True)
+    visible_devices = _parse_visible_devices()
+    if type(visible_devices[0]) is str:
+        uuids = _raw_device_uuid_hcusmi()
+        if uuids is None:
+            raise RuntimeError("Can't get device UUIDs")
+        visible_devices_str = cast(list[str], visible_devices)
+        visible_devices = _transform_uuid_to_ordinals(visible_devices_str, uuids)
+    idx_map = dict(enumerate(cast(list[int], visible_devices)))
+    if idx not in idx_map:
+        raise RuntimeError(
+            f"device {idx} is not visible (HIP_VISIBLE_DEVICES={visible_devices})"
+        )
+    return idx_map[idx]
+
+
 def _get_amdsmi_device_memory_used(device: Device = None) -> int:
     handle = _get_amdsmi_handler(device)
     # amdsmi_get_gpu_vram_usage returns mem usage in megabytes
     mem_mega_bytes = amdsmi.amdsmi_get_gpu_vram_usage(handle)["vram_used"]
+    mem_bytes = mem_mega_bytes * 1024 * 1024
+    return mem_bytes
+
+
+def _get_hcusmi_device_memory_used(device: Device = None) -> int:
+    handle = _get_hcusmi_handler(device)
+    # hcusmi_get_gpu_vram_usage returns mem usage in megabytes
+    mem_mega_bytes = hcusmi.hcusmi_get_gpu_vram_usage(handle)["vram_used"]
     mem_bytes = mem_mega_bytes * 1024 * 1024
     return mem_bytes
 
@@ -1412,9 +1585,19 @@ def _get_amdsmi_memory_usage(device: Device = None) -> int:
     return amdsmi.amdsmi_get_gpu_activity(handle)["umc_activity"]
 
 
+def _get_hcusmi_memory_usage(device: Device = None) -> int:
+    handle = _get_hcusmi_handler(device)
+    return hcusmi.hcusmi_get_gpu_activity(handle)["umc_activity"]
+
+
 def _get_amdsmi_utilization(device: Device = None) -> int:
     handle = _get_amdsmi_handler(device)
     return amdsmi.amdsmi_get_gpu_activity(handle)["gfx_activity"]
+
+
+def _get_hcusmi_utilization(device: Device = None) -> int:
+    handle = _get_hcusmi_handler(device)
+    return hcusmi.hcusmi_get_gpu_activity(handle)["gfx_activity"]
 
 
 def _get_amdsmi_temperature(device: Device = None) -> int:
@@ -1423,6 +1606,15 @@ def _get_amdsmi_temperature(device: Device = None) -> int:
         handle,
         amdsmi.AmdSmiTemperatureType.JUNCTION,
         amdsmi.AmdSmiTemperatureMetric.CURRENT,
+    )
+
+
+def _get_hcusmi_temperature(device: Device = None) -> int:
+    handle = _get_hcusmi_handler(device)
+    return hcusmi.hcusmi_get_temp_metric(
+        handle,
+        hcusmi.HcuSmiTemperatureType.JUNCTION,
+        hcusmi.HcuSmiTemperatureMetric.CURRENT,
     )
 
 
@@ -1439,9 +1631,35 @@ def _get_amdsmi_power_draw(device: Device = None) -> int:
             return 0
 
 
+def _get_hcusmi_power_draw(device: Device = None) -> int:
+    handle = _get_hcusmi_handler(device)
+    socket_power = hcusmi.hcusmi_get_power_info(handle)["average_socket_power"]
+    if socket_power != "N/A":
+        return socket_power
+    else:
+        socket_power = hcusmi.hcusmi_get_power_info(handle)["current_socket_power"]
+        if socket_power != "N/A":
+            return socket_power
+        else:
+            return 0
+
+
 def _get_amdsmi_clock_rate(device: Device = None) -> int:
     handle = _get_amdsmi_handler(device)
     clock_info = amdsmi.amdsmi_get_clock_info(handle, amdsmi.AmdSmiClkType.GFX)
+    if "cur_clk" in clock_info:  # ROCm 6.2 deprecation
+        clock_rate = clock_info["cur_clk"]
+    else:
+        clock_rate = clock_info["clk"]
+    if clock_rate != "N/A":
+        return clock_rate
+    else:
+        return 0
+
+
+def _get_hcusmi_clock_rate(device: Device = None) -> int:
+    handle = _get_hcusmi_handler(device)
+    clock_info = hcusmi.hcusmi_get_clock_info(handle, hcusmi.HcuSmiClkType.GFX)
     if "cur_clk" in clock_info:  # ROCm 6.2 deprecation
         clock_rate = clock_info["cur_clk"]
     else:
@@ -1467,7 +1685,10 @@ def device_memory_used(device: Device = None) -> int:
         handle = pynvml.nvmlDeviceGetHandleByIndex(device)
         return pynvml.nvmlDeviceGetMemoryInfo(handle).used
     else:
-        return _get_amdsmi_device_memory_used(device)
+        try:
+            return _get_hcusmi_device_memory_used(device)
+        except Exception:
+            return _get_amdsmi_device_memory_used(device)
 
 
 def memory_usage(device: Device = None) -> int:
@@ -1488,7 +1709,10 @@ def memory_usage(device: Device = None) -> int:
         handle = pynvml.nvmlDeviceGetHandleByIndex(device)
         return pynvml.nvmlDeviceGetUtilizationRates(handle).memory
     else:
-        return _get_amdsmi_memory_usage(device)
+        try:
+            return _get_hcusmi_memory_usage(device)
+        except Exception:
+            return _get_amdsmi_memory_usage(device)
 
 
 def utilization(device: Device = None) -> int:
@@ -1509,7 +1733,10 @@ def utilization(device: Device = None) -> int:
         handle = pynvml.nvmlDeviceGetHandleByIndex(device)
         return pynvml.nvmlDeviceGetUtilizationRates(handle).gpu
     else:
-        return _get_amdsmi_utilization(device)
+        try:
+            return _get_hcusmi_utilization(device)
+        except Exception:
+            return _get_amdsmi_utilization(device)
 
 
 def temperature(device: Device = None) -> int:
@@ -1530,7 +1757,10 @@ def temperature(device: Device = None) -> int:
         # 0 refers to the temperature sensor for the GPU die.
         return pynvml.nvmlDeviceGetTemperature(handle, 0)
     else:
-        return _get_amdsmi_temperature(device)
+        try:
+            return _get_hcusmi_temperature(device)
+        except Exception:
+            return _get_amdsmi_temperature(device)
 
 
 def power_draw(device: Device = None) -> int:
@@ -1549,7 +1779,10 @@ def power_draw(device: Device = None) -> int:
         handle = _get_pynvml_handler(device)
         return pynvml.nvmlDeviceGetPowerUsage(handle)
     else:
-        return _get_amdsmi_power_draw(device)
+        try:
+            return _get_hcusmi_power_draw(device)
+        except Exception:
+            return _get_amdsmi_power_draw(device)
 
 
 def clock_rate(device: Device = None) -> int:
@@ -1567,7 +1800,10 @@ def clock_rate(device: Device = None) -> int:
         handle = _get_pynvml_handler(device)
         return pynvml.nvmlDeviceGetClockInfo(handle, 1)
     else:
-        return _get_amdsmi_clock_rate(device)
+        try:
+            return _get_hcusmi_clock_rate(device)
+        except Exception:
+            return _get_amdsmi_clock_rate(device)
 
 
 def _get_device(device: int | str | torch.device) -> torch.device:

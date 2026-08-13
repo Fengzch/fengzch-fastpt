@@ -222,4 +222,4 @@ fastpt.hipify.folder /workspace/app -o /workspace/app_dtk \
 FastPT is distributed under the BSD 3-Clause License. See [LICENSE.txt](LICENSE.txt).
 
 Third-party components and their license notices are listed in
-[THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES).
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

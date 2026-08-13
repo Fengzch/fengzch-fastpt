@@ -75,6 +75,46 @@ add_library(torch_cuda SHARED ${Torch_CUDA_SRCS})
 target_include_directories(torch_cuda PRIVATE $ENV{HIP_TORCH_PATH})
 add_library(c10_cuda  SHARED ${C10_CUDA_SRCS} ${Torch_MOCKER_VLOG})
 
+# Encode DTK MAJOR.MINOR.PATCH as MAJOR * 10000 + MINOR * 100 + PATCH.
+if(DEFINED ENV{ROCM_PATH} AND NOT "$ENV{ROCM_PATH}" STREQUAL "")
+    set(FASTPT_ROCM_PATH "$ENV{ROCM_PATH}")
+elseif(DEFINED ENV{ROCM_HOME} AND NOT "$ENV{ROCM_HOME}" STREQUAL "")
+    set(FASTPT_ROCM_PATH "$ENV{ROCM_HOME}")
+else()
+    message(FATAL_ERROR "ROCM_PATH or ROCM_HOME is required")
+endif()
+
+set(FASTPT_DTK_VERSION_FILE "${FASTPT_ROCM_PATH}/.dtk_version")
+if(NOT EXISTS "${FASTPT_DTK_VERSION_FILE}")
+    message(FATAL_ERROR
+        "DTK version file does not exist: ${FASTPT_DTK_VERSION_FILE}")
+endif()
+
+file(STRINGS "${FASTPT_DTK_VERSION_FILE}"
+    FASTPT_DTK_VERSION_LINE LIMIT_COUNT 1)
+string(REGEX MATCH
+    "^DTK[-_]([0-9]+)[.]([0-9][0-9])([.]([0-9]+))?([-_]|$)"
+    FASTPT_DTK_VERSION_MATCH
+    "${FASTPT_DTK_VERSION_LINE}")
+
+if(NOT FASTPT_DTK_VERSION_MATCH)
+    message(FATAL_ERROR
+        "Invalid DTK version in ${FASTPT_DTK_VERSION_FILE}: ${FASTPT_DTK_VERSION_LINE}")
+endif()
+
+if(CMAKE_MATCH_4)
+    set(FASTPT_DTK_PATCH "${CMAKE_MATCH_4}")
+else()
+    set(FASTPT_DTK_PATCH 0)
+endif()
+
+math(EXPR PYTORCH_DTK_VERSION
+    "${CMAKE_MATCH_1} * 10000 + ${CMAKE_MATCH_2} * 100 + ${FASTPT_DTK_PATCH}")
+message(STATUS "Detected DTK version: ${PYTORCH_DTK_VERSION}")
+target_compile_definitions(c10_cuda PRIVATE
+    USE_ROCM
+    PYTORCH_DTK_VERSION=${PYTORCH_DTK_VERSION})
+
 add_dependencies(torch_cuda torch_mocker c10_cuda)
 #优先查找torchmocker下的头文件
 include_directories(BEFORE ${CMAKE_CURRENT_SOURCE_DIR}/include)

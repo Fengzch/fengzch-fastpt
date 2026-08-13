@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+// SPDX-License-Identifier: BSD-3-Clause
+
 #include <ATen/cuda/nvrtc_stub/ATenNVRTC.h>
 #include <utils/mocker_logging.h>
 #include <iostream>
@@ -13,4 +16,3 @@ NVRTC* cuda_nvrtc() {
 }
 
 }} // at::cuda
-

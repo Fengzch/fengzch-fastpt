@@ -1,3 +1,7 @@
+// Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+// SPDX-License-Identifier: BSD-3-Clause
+// Modified by Hygon Information Technology Co., Ltd., 2026.
+
 #include "hip/hip_runtime.h"
 #include <c10/cuda/CUDAMiscFunctions.h>
 #include <c10/util/env.h>
@@ -19,7 +23,9 @@ std::string get_cuda_error_help(cudaError_t error) noexcept {
     default:
       help_text.append("\nSearch for `")
           .append(cudaGetErrorName(error))
-#if defined(USE_ROCM)
+#if defined(USE_ROCM) && defined(PYTORCH_DTK_VERSION)
+          .append("' for more information.");
+#elif defined(USE_ROCM)
           .append(
               "' in https://rocm.docs.amd.com/projects/HIP/en/latest/index.html for more information.");
 #else

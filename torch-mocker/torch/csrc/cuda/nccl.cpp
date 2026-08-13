@@ -1,3 +1,7 @@
+// Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+// SPDX-License-Identifier: BSD-3-Clause
+// Modified by Hygon Information Technology Co., Ltd., 2026.
+
 #include <ATen/core/functional.h>
 #include <torch/csrc/cuda/device_set.h>
 #include <torch/csrc/cuda/nccl.h>

@@ -1,3 +1,7 @@
+// Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+// SPDX-License-Identifier: BSD-3-Clause
+// Modified by Hygon Information Technology Co., Ltd., 2026.
+
 #include <hip/hip_runtime.h>
 #include <c10/cuda/CUDAAllocatorConfig.h>
 #include <c10/cuda/CUDACachingAllocator.h>
@@ -231,5 +235,3 @@ size_t CUDAAllocatorConfig::parseThrowOnCudaMallocOom(
 REGISTER_ALLOCATOR_CONFIG_PARSE_HOOK(CUDAAllocatorConfig)
 
 } // namespace c10::cuda::CUDACachingAllocator
-
-

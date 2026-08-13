@@ -1,3 +1,7 @@
+// Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+// SPDX-License-Identifier: BSD-3-Clause
+// Modified by Hygon Information Technology Co., Ltd., 2026.
+
 #define USE_ROCM
 #include <ATen/cuda/nvrtc_stub/ATenNVRTC.h>
 #include <utils/mocker_logging.h>

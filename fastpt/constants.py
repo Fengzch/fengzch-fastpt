@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+# SPDX-License-Identifier: BSD-3-Clause
+
 """Constants for annotations in the mapping.
 
 The constants defined here are used to annotate the mapping tuples in cuda_to_hip_mappings.py.
