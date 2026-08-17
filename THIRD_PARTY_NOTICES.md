@@ -1,11 +1,33 @@
 # Third-Party Notices
 
-This file is the canonical component provenance registry for FastPT. Complete
-third-party license texts are preserved in the license-text annex
+## Project provenance
+
+FastPT consists of HYGON-developed core functionality and components derived
+from and adapted from PyTorch.
+
+- HYGON-developed portions include FastPT-specific architecture, integration,
+  build, conversion, adaptation, and HCU/DTK support code, except where an
+  upstream or third-party source is explicitly identified below.
+- PyTorch-derived portions are based on PyTorch `v2.12.0`, fixed at Commit
+  `0d62256a2b23365f8e1604297eb23a6545102aa8`, and have been adapted for
+  FastPT, torch-mocker, DTK, and HCU compatibility.
+- Upstream copyright and license notices are retained. Files containing
+  substantive HYGON modifications carry the corresponding HYGON modification
+  notice.
+- Detailed local-to-upstream file mappings and classifications are recorded in
+  `torch-mocker/PYTORCH_SOURCE_MAPPING.md`.
+
+This notice distinguishes HYGON-developed code from PyTorch-derived and other
+third-party components. It does not claim HYGON ownership of unmodified
+upstream code.
+
+## Third-party component registry
+
+This file records the provenance and license information for upstream and
+third-party components included in FastPT. Complete third-party license texts
+are preserved in the license-text annex
 [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES), in component license files, and in
-the component source files. The table records the fixed sources shipped by
-this repository. A directory-valued `Local path` covers all files below that
-directory unless the modifications column identifies narrower exceptions.
+the component source files.
 
 | Component | Source and fixed version | Copyright | License | Local path | HYGON changes |
 | --- | --- | --- | --- | --- | --- |
