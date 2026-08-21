@@ -857,8 +857,9 @@ for mapping in CUDA_TO_HIP_MAPPINGS:
         PYTORCH_MAP[src] = dst
 #add for cudamacros
 for src, value in CUDA_MACROS_MAP.items():
-    dst = value[0]
-    meta_data = value[1:]
+    # dst = value[0]
+    # meta_data = value[1:]
+    dst = value[0] if isinstance(value, (tuple, list)) else value
     CUDAMACROS_MAP[src] = dst
 
 RE_PYTORCH_PREPROCESSOR = re.compile(fr'(?<=\W)({PYTORCH_TRIE.export_to_regex()})(?=\W)')

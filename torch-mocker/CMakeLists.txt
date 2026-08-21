@@ -112,7 +112,6 @@ math(EXPR PYTORCH_DTK_VERSION
     "${CMAKE_MATCH_1} * 10000 + ${CMAKE_MATCH_2} * 100 + ${FASTPT_DTK_PATCH}")
 message(STATUS "Detected DTK version: ${PYTORCH_DTK_VERSION}")
 target_compile_definitions(c10_cuda PRIVATE
-    USE_ROCM
     PYTORCH_DTK_VERSION=${PYTORCH_DTK_VERSION})
 
 add_dependencies(torch_cuda torch_mocker c10_cuda)
