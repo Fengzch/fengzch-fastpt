@@ -158,6 +158,23 @@ def _find_rocm_home() -> str | None:
         logger.warning("No ROCm runtime is found, using ROCM_HOME='%s'", rocm_home)
     return rocm_home
 
+def _find_dtk_version(rocm_home):
+    version_file = os.path.join(rocm_home, ".dtk_version")
+    if not os.path.isfile(version_file):
+        return None
+    with open(version_file, "r", encoding="utf-8") as file:
+        first_line = file.readline().strip()
+
+    match = re.match(
+        r"^DTK[-_]([0-9]+)[.]([0-9][0-9])(?:[.]([0-9]+))?(?:[-_]|$)",
+        first_line,
+    )
+    if match is None:
+        raise RuntimeError(f"Invalid DTK version: {first_line}")
+
+    patch = int(match.group(3) or 0)
+    return int(match.group(1)) * 10000 + int(match.group(2)) * 100 + patch
+
 def _find_sycl_home() -> str | None:
     sycl_home = None
     icpx_path = shutil.which('icpx')
@@ -252,6 +269,10 @@ environment variable or add NVCC to your system PATH. The extension compilation 
 ROCM_HOME = _find_rocm_home()
 HIP_HOME = _join_rocm_home('hip') if ROCM_HOME else None
 IS_HIP_EXTENSION = True if ((ROCM_HOME is not None) and (torch.version.hip is not None)) else False
+
+PYTORCH_DTK_VERSION = (
+    _find_dtk_version(ROCM_HOME) if IS_HIP_EXTENSION else None
+)
 
 ROCM_VERSION = None
 if torch.version.hip is not None:
@@ -622,6 +643,11 @@ def CUDAExtension(name, sources, *args, **kwargs):
     #aiss add for nvcc args in cudaExtension
     extra_compile_args = kwargs.get('extra_compile_args', {})
     output_nvcc_argslist = copy.deepcopy(COMMON_HIPCC_EXTRA_FLAGS)
+
+    if PYTORCH_DTK_VERSION is not None:
+        output_nvcc_argslist.append(
+            f"-DPYTORCH_DTK_VERSION={PYTORCH_DTK_VERSION}"
+        )
 
     if type(extra_compile_args).__name__ != 'list':# if pextra_compile_args is list,get args from extra_compile_args will failed with error
         extra_nvcc_args = extra_compile_args.get('nvcc', [])
