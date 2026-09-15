@@ -18,8 +18,11 @@ das_version = 'das'
 try:
     import torch
     torch_install_path = os.path.dirname(torch.__file__)
+    # CMake consumes TORCH_PATH from its environment. Derive it from the
+    # imported torch package so callers do not need to export it manually.
+    os.environ["TORCH_PATH"] = torch_install_path
 except ImportError as e:
-    raise("Torch is required")
+    raise RuntimeError("Torch is required") from e
 
 torch_version = torch.__version__
 
@@ -49,12 +52,9 @@ class CMakeBuild(build_ext):
                 "from the fastpt repository root before building."
             )
 
-        HIP_TORCH_PATH = os.environ.get("HIP_TORCH_PATH", "")
-        if len(HIP_TORCH_PATH) == 0:
-            raise("Environment variable HIP_TORCH_PATH is required, please set the torch source dir such as: export HIP_TORCH_PATH=/path/to/pytorch ")
-        torch_lib_path = os.environ.get("TORCH_PATH", "")
-        if len(torch_lib_path) == 0:
-            raise("Environment variable TORCH_PATH is required, please set the torch source dir such as: export TORCH_PATH=/path/to/site-packages/torch ")
+        torch_lib_path = torch_install_path
+        if not os.path.isdir(torch_lib_path):
+            raise RuntimeError(f"Torch installation directory does not exist: {torch_lib_path}")
         cmake_args = os.environ.get("TORCH_MOCKER_CMAKE_ARGS", "")
         make_args = "-j8 VERBOSE=1"
         make_args_env = os.environ.get("TORCH_MOCKER_MAKE_ARGS", "")
