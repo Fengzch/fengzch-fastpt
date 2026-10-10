@@ -147,7 +147,7 @@ add_library(torch_cuda SHARED IMPORTED)
 set_target_properties(torch_cuda PROPERTIES
   INTERFACE_COMPILE_DEFINITIONS "USE_C10D_NCCL"
   INTERFACE_INCLUDE_DIRECTORIES "${_IMPORT_PREFIX}/include"
-  INTERFACE_LINK_LIBRARIES "c10_cuda;torch_cpu_library;${_IMPORT_PREFIX}/lib/libtorch_python.so"
+  INTERFACE_LINK_LIBRARIES "c10_cuda;torch_cpu_library"
 )
 
 add_library(torch_hip_library INTERFACE IMPORTED)
