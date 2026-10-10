@@ -10,12 +10,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: fastpt-pr-gate-${{ github.event.pull_request.number }}
+  group: hygon-pr-gate-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
   gate:
     name: Checks
-    uses: HYGON-AI/quality-gate/.github/workflows/pr-quality-gate.yml@v2.0.3
+    uses: HYGON-AI/quality-gate/.github/workflows/pr-quality-gate.yml@stable
     permissions:
       contents: read
