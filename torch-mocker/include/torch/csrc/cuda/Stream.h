@@ -8,19 +8,14 @@
 #ifndef USE_ROCM
 #include <c10/cuda/CUDAStream.h>
 #else
-#include <ATen/hip/impl/HIPStreamMasqueradingAsCUDA.h>
+#include <c10/hip/HIPStream.h>
 #endif
 #include <torch/csrc/Stream.h>
 #include <torch/csrc/python_headers.h>
 
 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
 struct THCPStream : THPStream {
-#ifndef USE_ROCM
   at::cuda::CUDAStream cuda_stream;
-#else
-  at::hip::HIPStreamMasqueradingAsCUDA cuda_stream;
-#endif
-
 };
 extern PyObject* THCPStreamClass;
 

@@ -120,11 +120,8 @@ TORCH_CUDA_CPP_API void check_inputs(
 } // namespace detail
 
 using comm_list = std::vector<ncclComm_t>;
-#ifndef USE_ROCM
 using stream_list = std::vector<std::optional<at::cuda::CUDAStream>>;
-#else
-using stream_list = std::vector<std::optional<at::hip::HIPStreamMasqueradingAsCUDA>>;
-#endif
+
 TORCH_CUDA_CPP_API std::uint64_t version();
 TORCH_CUDA_CPP_API const char* version_suffix();
 
@@ -170,27 +167,20 @@ TORCH_CUDA_CPP_API void reduce_scatter(
     int32_t op = static_cast<int>(ncclRedOp::Sum),
     const stream_list& streams = {},
     const comm_list& user_comms = {});
-#ifndef USE_ROCM
+
 TORCH_CUDA_CPP_API void scatter(
     const std::vector<at::Tensor>& inputs,
     at::Tensor& outputs,
     ncclComm_t comm,
     at::cuda::CUDAStream& stream,
     int32_t root = 0);
-#else
-TORCH_CUDA_CPP_API void scatter(
-    const std::vector<at::Tensor>& inputs,
-    at::Tensor& outputs,
-    ncclComm_t comm,
-    at::hip::HIPStreamMasqueradingAsCUDA& stream,
-    int32_t root = 0);
-#endif
+
 TORCH_CUDA_CPP_API void all_gather(
     const std::vector<at::Tensor>& inputs,
     std::vector<at::Tensor>& outputs,
     const stream_list& streams = {},
     const comm_list& user_comms = {});
-#ifndef USE_ROCM
+
 TORCH_CUDA_CPP_API void gather(
     const at::Tensor& inputs,
     std::vector<at::Tensor>& outputs,
@@ -234,49 +224,5 @@ TORCH_CUDA_CPP_API void recv(
     ncclComm_t comm,
     at::cuda::CUDAStream stream,
     int src);
-#else
-TORCH_CUDA_CPP_API void gather(
-    const at::Tensor& inputs,
-    std::vector<at::Tensor>& outputs,
-    ncclComm_t comm,
-    at::hip::HIPStreamMasqueradingAsCUDA& stream,
-    int32_t root = 0);
 
-TORCH_CUDA_CPP_API void all2all_single_equal_split(
-    at::Tensor& input,
-    at::Tensor& output,
-    int size,
-    ncclComm_t comm,
-    at::hip::HIPStreamMasqueradingAsCUDA& stream);
-
-TORCH_CUDA_CPP_API void all2all_single_unequal_split(
-    void* sendbuff,
-    const size_t* sendcounts,
-    const size_t* senddispls,
-    void* recvbuff,
-    const size_t* recvcounts,
-    const size_t* recvdispls,
-    size_t size,
-    c10::ScalarType type,
-    ncclComm_t comm,
-    at::hip::HIPStreamMasqueradingAsCUDA& stream);
-
-TORCH_CUDA_CPP_API void all2all(
-    std::vector<at::Tensor>& outputTensors,
-    std::vector<at::Tensor>& inputTensors,
-    ncclComm_t _comm,
-    at::hip::HIPStreamMasqueradingAsCUDA& stream);
-
-TORCH_CUDA_CPP_API void send(
-    const at::Tensor& input,
-    ncclComm_t comm,
-    at::hip::HIPStreamMasqueradingAsCUDA stream,
-    int dst);
-
-TORCH_CUDA_CPP_API void recv(
-    at::Tensor& output,
-    ncclComm_t comm,
-    at::hip::HIPStreamMasqueradingAsCUDA stream,
-    int src);
-#endif
 } // namespace torch::cuda::nccl
