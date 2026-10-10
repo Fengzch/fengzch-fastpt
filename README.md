@@ -7,11 +7,11 @@
 
 ## 编译与安装
 
-`FastPT` 的 wheel 会构建集成的 `torch-mocker`，因此构建环境必须同时具备 DTK、已安装的目标 HIP torch package 和同版本 HIP torch 源码。`TORCH_PATH` 必须指向干净的 HIP torch 安装目录，不能是已经被 FastPT `-C` 覆盖过的 torch。
+`FastPT` 的 wheel 会构建集成的 `torch-mocker`，因此构建环境必须具备 DTK、已安装的目标 HIP torch package，以及 CMake、GNU Make 和可用的编译器。使用的 torch 应为干净的目标 HIP torch package，不能是已经被 FastPT `-C` 覆盖过的 torch。
 
 构建前确认：
 
-- FastPT 分支、已安装 torch 和 `HIP_TORCH_PATH` 对应同一 PyTorch 版本；
+- FastPT 分支与已安装 torch 对应同一 PyTorch 版本；
 - 已安装 `wheel`、CMake、GNU Make 和可用的 DTK 编译环境；
 - 当前环境未安装过 `FastPT wheel`。检查torch的安装路径下， torch/lib 不存在 libtorch_cuda.so、libc10_cuda.so、libtorch_mocker.so，并确认`torch/utils/cpp_extension.py` 不含 USE_FASTPT_CUDA 等 FastPT 路由。
 
@@ -21,16 +21,11 @@
 cd /path/to/fastpt
 source /opt/dtk/cuda/env.sh
 
-# 必须是干净的目标 HIP torch package，
-export TORCH_PATH="$(python3 -c 'import os, torch; print(os.path.dirname(torch.__file__))')"
-# /path/to/pytorch: 为HCU适配的pytorch的源码，注意版本分支。
-export HIP_TORCH_PATH=/path/to/pytorch
-
 git submodule update --init --recursive
 rm -rf build dist fastpt.egg-info torch-mocker/build
 
-# FASTPT_CTEST可以控制CTest部分的编译，默认为 1：构建 torch-mocker 和已注册的 CTest 可执行文件，不需要Ctest可以设置为0.
-python3 setup.py bdist_wheel
+# FASTPT_CTEST 默认为 1；设置为 0 可跳过 CTest 可执行文件构建。
+FASTPT_CTEST=1 python3 setup.py bdist_wheel
 ```
 
 构建产物位于 `dist/fastpt-*.whl`。若仅需要构建发布 wheel，且已通过后文的独立 CTest，可设置 `FASTPT_CTEST=0` 跳过测试可执行文件构建。
@@ -44,7 +39,7 @@ cd /path/to/fastpt
 FASTPT_HIPIFY_ONLY=1 python3 setup.py bdist_wheel
 ```
 
-该模式不需要设置 `TORCH_PATH` 或 `HIP_TORCH_PATH`，但仍需要可导入的匹配 HCU/HIP torch，以生成包版本元数据。它不构建或打包 `libc10_cuda.so`、`libtorch_cuda.so`、`libtorch_mocker.so`、torch overlay 和 `fastpt -C/-E` 环境脚本，只能用于源码/CMake 转码, `CUDAExtension`、`CppExtension`的扩展编译，不能用于基于GPUFusion的不转码 编译或运行环境初始化。
+该模式不需要设置 `TORCH_PATH`，但仍需要可导入的匹配 HCU/HIP torch，以生成包版本元数据。它不构建或打包 `libc10_cuda.so`、`libtorch_cuda.so`、`libtorch_mocker.so`、torch overlay 和 `fastpt -C/-E` 环境脚本，只能用于源码/CMake 转码, `CUDAExtension`、`CppExtension`的扩展编译，不能用于基于GPUFusion的不转码 编译或运行环境初始化。
 
 ### 安装与验证
 
@@ -59,17 +54,18 @@ fastpt.hipify.file --help
 
 ### CTest 测试
 
-`FASTPT_CTEST`不设置时默认为1，会编译CTest测试文件，可通过以下方式进行`torch-mocker`部分的测试：
+`FASTPT_CTEST` 不设置时默认为 1，会构建 `torch-mocker` 的 CTest 可执行文件。wheel 构建后可使用以下命令运行测试：
 
 ```bash
-export LD_LIBRARY_PATH="$PWD/torch-mocker/build:$TORCH_PATH/lib:${LD_LIBRARY_PATH:-}"
+TORCH_LIB_DIR="$(python3 -c 'import os, torch; print(os.path.join(os.path.dirname(torch.__file__), "lib"))')"
+export LD_LIBRARY_PATH="$PWD/torch-mocker/build:$TORCH_LIB_DIR:${LD_LIBRARY_PATH:-}"
 ctest --test-dir torch-mocker/build --output-on-failure -j1
 ```
 
-使用 `ctest --test-dir torch-mocker/build_ctest -N` 可列出已注册测试。定位单个失败时，使用测试名筛选，例如：
+使用 `ctest --test-dir torch-mocker/build -N` 可列出已注册测试。定位单个失败时，使用测试名筛选，例如：
 
 ```bash
-ctest --test-dir torch-mocker/build_ctest --output-on-failure \
+ctest --test-dir torch-mocker/build --output-on-failure \
   -R '^torch_mocker\.c10\.cuda_functions$'
 ```
 

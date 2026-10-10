@@ -9,10 +9,10 @@ set(TORCH_MOCKER_TEST_SOURCE_DIR "${CMAKE_CURRENT_LIST_DIR}")
 function(torch_mocker_add_test_runner target)
     cuda_add_executable(${target} ${TORCH_MOCKER_TEST_SOURCE_DIR}/support/TestMain.cpp)
     target_link_libraries(${target}
-        $ENV{TORCH_PATH}/lib/libc10.so
-        $ENV{TORCH_PATH}/lib/libtorch_cpu.so
-        $ENV{TORCH_PATH}/lib/libtorch.so
-        $ENV{TORCH_PATH}/lib/libcaffe2_nvrtc.so
+        ${TORCH_PATH}/lib/libc10.so
+        ${TORCH_PATH}/lib/libtorch_cpu.so
+        ${TORCH_PATH}/lib/libtorch.so
+        ${TORCH_PATH}/lib/libcaffe2_nvrtc.so
         torch_cuda c10_cuda torch_mocker
         cufft cusparse cudnn cudnn_cnn_infer cudnn_adv_infer numa
         cublas nccl cublasLt pthread fmt)

@@ -12,7 +12,7 @@
 #ifndef USE_ROCM
 #include <c10/cuda/CUDAStream.h>
 #else
-#include <ATen/hip/impl/HIPStreamMasqueradingAsCUDA.h>
+#include <c10/hip/HIPStream.h>
 #endif
 #include <optional>
 
@@ -22,23 +22,13 @@
 namespace torch::autograd {
 
 struct TORCH_CUDA_CU_API Scatter : public Node {
-  #ifndef USE_ROCM
-  explicit Scatter(
+    explicit Scatter(
       std::vector<at::Device> devices,
       std::optional<std::vector<int64_t>> chunk_sizes = std::nullopt,
       int64_t dim = 0,
       std::optional<std::vector<std::optional<at::cuda::CUDAStream>>> streams =
           std::nullopt,
       bool unsqueeze_scalars = false);
-  #else
-  explicit Scatter(
-      std::vector<at::Device> devices,
-      std::optional<std::vector<int64_t>> chunk_sizes = std::nullopt,
-      int64_t dim = 0,
-      std::optional<std::vector<std::optional<at::hip::HIPStreamMasqueradingAsCUDA>>> streams =
-          std::nullopt,
-      bool unsqueeze_scalars = false);
-  #endif
   ~Scatter() override;
 
   variable_list apply(variable_list&& inputs) override;
@@ -46,11 +36,7 @@ struct TORCH_CUDA_CU_API Scatter : public Node {
   std::vector<at::Device> devices_;
   std::optional<std::vector<int64_t>> chunk_sizes_;
   int64_t dim_;
-  #ifndef USE_ROCM
   std::optional<std::vector<std::optional<at::cuda::CUDAStream>>> streams_;
-  #else
-  std::optional<std::vector<std::optional<at::hip::HIPStreamMasqueradingAsCUDA>>> streams_;
-  #endif
   bool unsqueeze_scalars_;
 };
 

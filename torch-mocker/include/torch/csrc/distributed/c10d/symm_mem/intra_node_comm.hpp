@@ -8,7 +8,7 @@
 #ifndef USE_ROCM
 #include <c10/cuda/CUDAStream.h>
 #else
-#include <ATen/hip/impl/HIPStreamMasqueradingAsCUDA.h>
+#include <c10/hip/HIPStream.h>
 #endif
 #include <torch/csrc/distributed/c10d/Store.hpp>
 #include <torch/csrc/distributed/c10d/Work.hpp>
@@ -64,7 +64,6 @@ class TORCH_API IntraNodeComm : public c10::intrusive_ptr_target {
   at::Tensor allReduce(const at::Tensor& input, AllReduceAlgo algo);
 
  private:
-  #ifndef USE_ROCM
   at::Tensor oneShotAllReduce(
       const at::Tensor& input,
       at::cuda::CUDAStream& stream);
@@ -72,15 +71,6 @@ class TORCH_API IntraNodeComm : public c10::intrusive_ptr_target {
   at::Tensor twoShotAllReduce(
       const at::Tensor& input,
       at::cuda::CUDAStream& stream);
-  #else
-  at::Tensor oneShotAllReduce(
-      const at::Tensor& input,
-      at::hip::HIPStreamMasqueradingAsCUDA& stream);
-
-  at::Tensor twoShotAllReduce(
-      const at::Tensor& input,
-      at::hip::HIPStreamMasqueradingAsCUDA& stream);
-  #endif
 
   c10::intrusive_ptr<Store> store_;
   size_t rank_;

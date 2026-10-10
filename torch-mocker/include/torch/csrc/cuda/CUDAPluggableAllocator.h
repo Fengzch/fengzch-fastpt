@@ -14,7 +14,7 @@
 #else
 #include <c10/hip/HIPGraphsC10Utils.h>
 #include <c10/hip/HIPMacros.h>
-#include <ATen/hip/impl/HIPStreamMasqueradingAsCUDA.h>
+#include <c10/hip/HIPStream.h>
 
 #include <c10/hip/HIPCachingAllocator.h>
 #endif

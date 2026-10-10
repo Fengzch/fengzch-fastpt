@@ -37,26 +37,16 @@ TORCH_CUDA_CU_API std::vector<at::Tensor>& scatter_out(
     const at::Tensor& tensor,
     std::vector<at::Tensor>& out_tensors,
     int64_t dim = 0,
-    #ifndef USE_ROCM
     const std::optional<std::vector<std::optional<at::cuda::CUDAStream>>>&
         streams = std::nullopt);
-    #else
-    const std::optional<std::vector<std::optional<at::hip::HIPStreamMasqueradingAsCUDA>>>&
-        streams = std::nullopt);
-    #endif
 
 TORCH_CUDA_CU_API std::vector<at::Tensor> scatter(
     const at::Tensor& tensor,
     at::IntArrayRef devices,
     const std::optional<std::vector<int64_t>>& chunk_sizes = std::nullopt,
     int64_t dim = 0,
-    #ifndef USE_ROCM
     const std::optional<std::vector<std::optional<at::cuda::CUDAStream>>>&
         streams = std::nullopt);
-    #else
-    const std::optional<std::vector<std::optional<at::hip::HIPStreamMasqueradingAsCUDA>>>&
-        streams = std::nullopt);
-    #endif
 
 TORCH_CUDA_CU_API at::Tensor& gather_out(
     at::TensorList tensors,
